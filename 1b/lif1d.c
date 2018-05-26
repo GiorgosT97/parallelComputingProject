@@ -236,8 +236,8 @@ int main(int argc, char *argv[])
 	}
 
 	sumArray = (double *)calloc(n, sizeof(double));
-	if (temp == NULL) {
-		printf("Could not allocate memory for \"temp\".\n");
+	if (sumArray == NULL) {
+		printf("Could not allocate memory for \"sumArray\".\n");
 		exit(1);
 	}
 
