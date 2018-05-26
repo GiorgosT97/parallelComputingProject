@@ -49,7 +49,7 @@ int main(int argc, char *argv[])
 	double		mu;
 	double		s_min;
 	double		s_max;
-	double		*u, *uplus, *sigma, *omega, *omega1, *temp;
+	double		*u, *uplus, *sigma, *omega, *omega1, *temp, *sumArray;
 	double		sum;
 	double		time;
 	struct timeval	global_start, global_end, IO_start, IO_end;
@@ -235,6 +235,12 @@ int main(int argc, char *argv[])
 		exit(1);
 	}
 
+	sumArray = (double *)calloc(n, sizeof(double));
+	if (temp == NULL) {
+		printf("Could not allocate memory for \"temp\".\n");
+		exit(1);
+	}
+
 	temp = (double *)calloc(n, sizeof(double));
 	if (temp == NULL) {
 		printf("Could not allocate memory for \"temp\".\n");
@@ -280,24 +286,29 @@ int main(int argc, char *argv[])
 	for (i = 0; i < r; i++) {
 		for (j = 0; j < i + r + 1; j++) {
 			sigma[i * n + j] = s_min + (s_max - s_min) * drand48();
+			sumArray[i] = sigma[i * n + j];
 		}
 		for (j = n - r + i; j < n; j++) {
 			sigma[i * n + j] = s_min + (s_max - s_min) * drand48();
+			sumArray[i] = sigma[i * n + j];
 		}
 	}
 
 	for (i = r; i < n - r; i++) {
 		for (j = 0; j < 2 * r + 1; j++) {
 			sigma[i * n + j + i - r]  = s_min + (s_max - s_min) * drand48();
+			sumArray[i] = sigma[i * n + j + i - r];
 		}
 	}
 
 	for (i = n - r; i < n; i++) {
 		for (j = 0; j < i - n + r + 1; j++) {
 			sigma[i * n + j] = s_min + (s_max - s_min) * drand48();
+			sumArray[i] = sigma[i * n + j];
 		}
 		for (j = i - r; j < n; j++) {
 			sigma[i * n + j] = s_min + (s_max - s_min) * drand48();
+			sumArray[i] = sigma[i * n + j];
 		}
 	}
 #if 0
@@ -319,28 +330,30 @@ int main(int argc, char *argv[])
 		 */
 		for (i = 0; i < n; i++) {
 			uplus[i] = u[i] + dt * (mu - u[i]);
-			sum = 0.0;
+			sum = -sumArray[i]*u[i];
 			/*
 			 * Iteration over neighbouring neurons.
 			 */
 			for (j = 0; j < n; j++) {
-				sum += sigma[i * n + j] * (u[j] - u[i]);
-			}
-			uplus[i] += dt * sum / divide;
-			if (uplus[i] > uth) {
-				uplus[i] = 0.0;
-				/*
-				 * Calculate omega's.
-				*/
-				if (it >= ttransient) {
-					omega1[i] += 1.0;
-				}
+				sum += sigma[i * n + j] * u[j];
 			}
 		}
 
 		/*
 		 * Update network elements and set u[i] = 0 if u[i] > uth
 		 */
+		for (i = 0; i < n; i++) {
+			u[i] = uplus[i];
+			if (u[i] > uth) {
+				u[i] = 0.0;
+				/*
+				 * Calculate omega's.
+				 */
+				if (it >= ttransient) {
+					omega1[i] += 1.0;
+				}
+			}
+		}
 		/*for (i = 0; i < n; i++) {
 			//u[i] = uplus[i];
 
