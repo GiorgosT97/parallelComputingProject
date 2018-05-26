@@ -348,9 +348,9 @@ int main(int argc, char *argv[])
 		 * Update network elements and set u[i] = 0 if u[i] > uth
 		 */
 		for (i = 0; i < n; i++) {
-			u[i] = uplus[i];
-			if (u[i] > uth) {
-				u[i] = 0.0;
+			//u[i] = uplus[i];
+			if (uplus[i] > uth) {
+				uplus[i] = 0.0;
 				/*
 				 * Calculate omega's.
 				 */
@@ -359,7 +359,9 @@ int main(int argc, char *argv[])
 				}
 			}
 		}
-
+	temp = u;
+	u = uplus;
+	uplus = temp;
 		/*
 		 * Print out of results.
 		 */
