@@ -286,29 +286,29 @@ int main(int argc, char *argv[])
 	for (i = 0; i < r; i++) {
 		for (j = 0; j < i + r + 1; j++) {
 			sigma[i * n + j] = s_min + (s_max - s_min) * drand48();
-			sumArray[i] = sigma[i * n + j];
+			sumArray[i] += sigma[i * n + j];
 		}
 		for (j = n - r + i; j < n; j++) {
 			sigma[i * n + j] = s_min + (s_max - s_min) * drand48();
-			sumArray[i] = sigma[i * n + j];
+			sumArray[i] += sigma[i * n + j];
 		}
 	}
 
 	for (i = r; i < n - r; i++) {
 		for (j = 0; j < 2 * r + 1; j++) {
 			sigma[i * n + j + i - r]  = s_min + (s_max - s_min) * drand48();
-			sumArray[i] = sigma[i * n + j + i - r];
+			sumArray[i] += sigma[i * n + j + i - r];
 		}
 	}
 
 	for (i = n - r; i < n; i++) {
 		for (j = 0; j < i - n + r + 1; j++) {
 			sigma[i * n + j] = s_min + (s_max - s_min) * drand48();
-			sumArray[i] = sigma[i * n + j];
+			sumArray[i] += sigma[i * n + j];
 		}
 		for (j = i - r; j < n; j++) {
 			sigma[i * n + j] = s_min + (s_max - s_min) * drand48();
-			sumArray[i] = sigma[i * n + j];
+			sumArray[i] += sigma[i * n + j];
 		}
 	}
 #if 0
