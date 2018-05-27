@@ -3,6 +3,7 @@
 #include <getopt.h>
 #include <stdlib.h>
 #include <sys/time.h>
+#include <omp.h>
 
 #define MIN_NUM_OF_NEURONS	(1L)
 #define DEF_NUM_OF_NEURONS	(400L)
@@ -235,12 +236,6 @@ int main(int argc, char *argv[])
 		exit(1);
 	}
 
-	sumArray = (double *)calloc(n, sizeof(double));
-	if (sumArray == NULL) {
-		printf("Could not allocate memory for \"sumArray\".\n");
-		exit(1);
-	}
-
 	temp = (double *)calloc(n, sizeof(double));
 	if (temp == NULL) {
 		printf("Could not allocate memory for \"temp\".\n");
@@ -334,65 +329,73 @@ int main(int argc, char *argv[])
 	 */
 
 	gettimeofday(&global_start, NULL);
-	for (it = 0; it < itime; it++) {
-		/*
-		 * Iteration over elements.
-		 */
-		for (i = 0; i < n; i++) {
-			uplus[i] = u[i] + dt * (mu - u[i]);
-			sum = -sumArray[i]*u[i];
+	#pragma omp parallel
+	{
+		#pragma omp for
+		for (it = 0; it < itime; it++) {
 			/*
-			 * Iteration over neighbouring neurons.
+			 * Iteration over elements.
 			 */
-			for (j = 0; j < n; j++) {
-				sum += sigma[i * n + j] * u[j];
-			}
-			uplus[i] += dt * sum / divide;
-		}
-
-		/*
-		 * Update network elements and set u[i] = 0 if u[i] > uth
-		 */
-		for (i = 0; i < n; i++) {
-			u[i] = uplus[i];
-			if (u[i] > uth) {
-				u[i] = 0.0;
+			for (i = 0; i < n; i++) {
+				uplus[i] = u[i] + dt * (mu - u[i]);
+				sum = -sumArray[i]*u[i];
 				/*
-				 * Calculate omega's.
+				 * Iteration over neighbouring neurons.
 				 */
-				if (it >= ttransient) {
-					omega1[i] += 1.0;
+				for (j = 0; j < n; j++) {
+					sum += sigma[i * n + j] * u[j];
+				}
+				uplus[i] += dt * sum / divide;
+			}
+
+			/*
+			 * Update network elements and set u[i] = 0 if u[i] > uth
+			 */
+			for (i = 0; i < n; i++) {
+				//u[i] = uplus[i];
+				if (uplus[i] > uth) {
+					uplus[i] = 0.0;
+					/*
+					 * Calculate omega's.
+					 */
+					if (it >= ttransient) {
+						omega1[i] += 1.0;
+					}
 				}
 			}
-		}
+	   temp = u;
+		u = uplus;
+		uplus = temp; 
 
-		/*
-		 * Print out of results.
-		 */
-#if !defined(ALL_RESULTS)
-		if (it % ntstep == 0) {
-#endif
-			printf("Time is %ld\n", it);
+		//cblas_dswap (n,u,1,uplus,1);
+			/*
+			 * Print out of results.
+			 */
+	#if !defined(ALL_RESULTS)
+			if (it % ntstep == 0) {
+	#endif
+				printf("Time is %ld\n", it);
 
-			gettimeofday(&IO_start, NULL);
-			fprintf(output1, "%ld\t", it);
-			for (i = 0; i < n; i++) {
-				fprintf(output1, "%19.15f", u[i]);
+				gettimeofday(&IO_start, NULL);
+				fprintf(output1, "%ld\t", it);
+				for (i = 0; i < n; i++) {
+					fprintf(output1, "%19.15f", u[i]);
+				}
+				fprintf(output1, "\n");
+
+				time = (double)it * dt;
+				fprintf(output2, "%ld\t", it);
+				for (i = 0; i < n; i++) {
+					omega[i] = 2.0 * M_PI * omega1[i] / (time - ttransient * dt);
+					fprintf(output2, "%19.15f", omega[i]);
+				}
+				fprintf(output2, "\n");
+				gettimeofday(&IO_end, NULL);
+				IO_usec += ((IO_end.tv_sec - IO_start.tv_sec) * 1000000.0 + (IO_end.tv_usec - IO_start.tv_usec));
+	#if !defined(ALL_RESULTS)
 			}
-			fprintf(output1, "\n");
-
-			time = (double)it * dt;
-			fprintf(output2, "%ld\t", it);
-			for (i = 0; i < n; i++) {
-				omega[i] = 2.0 * M_PI * omega1[i] / (time - ttransient * dt);
-				fprintf(output2, "%19.15f", omega[i]);
-			}
-			fprintf(output2, "\n");
-			gettimeofday(&IO_end, NULL);
-			IO_usec += ((IO_end.tv_sec - IO_start.tv_sec) * 1000000.0 + (IO_end.tv_usec - IO_start.tv_usec));
-#if !defined(ALL_RESULTS)
+	#endif
 		}
-#endif
 	}
 	gettimeofday(&global_end, NULL);
 	global_usec = ((global_end.tv_sec - global_start.tv_sec) * 1000000.0 + (global_end.tv_usec - global_start.tv_usec));
