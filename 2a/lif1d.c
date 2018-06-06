@@ -329,37 +329,32 @@ int main(int argc, char *argv[])
 	 */
 
 	gettimeofday(&global_start, NULL);
-	//#pragma omp parallel
-	//{
-	#pragma omp parallel for shared(it,i,j,sum,uplus,u,sumArray,sigma,mu,divide,dt,temp,n,omega1,itime,uth,ttransient) schedule(dynamic)
-		//#pragma omp critical
-		//{
+
+	//#pragma omp parallel for private(i,j) shared(it,sum,uplus,u,sumArray,sigma,mu,divide,dt,temp,n,omega1,itime,uth,ttransient) schedule(dynamic)
+	#pragma omp for ordered schedule(dynamic,2)
 		for (it = 0; it < itime; it++) {
 			/*
 			 * Iteration over elements.
 			 */
-			#pragma omp critical
-			{
-			for (i = 0; i < n; i++) {		
+			//#pragma omp for ordered	
+			for (i = 0; i < n; i++) {
 				uplus[i] = u[i] + dt * (mu - u[i]);
 				sum = -sumArray[i]*u[i];
+
 				/*
 				 * Iteration over neighbouring neurons.
 				 */
-				for (j = 0; j < n; j++) {				
-					sum += sigma[i * n + j] * u[j];					
+				for (j = 0; j < n; j++) {
+					sum += sigma[i * n + j] * u[j];	
 				}
 				uplus[i] += dt * sum / divide;
 			}
-			}
-		//}
+
 			/*
 			 * Update network elements and set u[i] = 0 if u[i] > uth
 			 */
-			#pragma omp critical
-			{
-			for (i = 0; i < n; i++) {
-				//u[i] = uplus[i];
+			//#pragma omp for ordered schedule (dynamic)
+			for (i = 0; i < n; i++) {				
 				if (uplus[i] > uth) {
 					uplus[i] = 0.0;
 					/*
@@ -370,13 +365,12 @@ int main(int argc, char *argv[])
 					}
 				}
 			}
-			}
-	//#pragma omp critical
-	//{		
+
+		
 	   temp = u;
 		u = uplus;
 		uplus = temp; 
-	//}
+
 		//cblas_dswap (n,u,1,uplus,1);
 			/*
 			 * Print out of results.
