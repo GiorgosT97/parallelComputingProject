@@ -49,7 +49,7 @@ int main(int argc, char *argv[])
 	double		mu;
 	double		s_min;
 	double		s_max;
-	double		*u, *uplus, *sigma, *omega, *omega1, *temp;
+	double		*u, *uplus, *sigma, *omega, *omega1, *temp, *sumArray;
 	double		sum;
 	double		time;
 	struct timeval	global_start, global_end, IO_start, IO_end;
@@ -253,6 +253,12 @@ int main(int argc, char *argv[])
 		exit(1);
 	}
 
+	sumArray = (double *)calloc(n, sizeof(double));
+	if (sigma == NULL) {
+		printf("Could not allocate memory for \"sigma\".\n");
+		exit(1);
+	}
+
 	omega = (double *)calloc(n, sizeof(double));
 	if (omega == NULL) {
 		printf("Could not allocate memory for \"omega\".\n");
@@ -278,26 +284,34 @@ int main(int argc, char *argv[])
 	 * construct connectivity matrix.
 	 */
 	for (i = 0; i < r; i++) {
+		sumArray[i] = 0;
 		for (j = 0; j < i + r + 1; j++) {
 			sigma[i * n + j] = s_min + (s_max - s_min) * drand48();
+			sumArray[i] += sigma[i * n + j];
 		}
 		for (j = n - r + i; j < n; j++) {
 			sigma[i * n + j] = s_min + (s_max - s_min) * drand48();
+			sumArray[i] += sigma[i * n + j];
 		}
 	}
 
 	for (i = r; i < n - r; i++) {
+		sumArray[i] = 0;
 		for (j = 0; j < 2 * r + 1; j++) {
 			sigma[i * n + j + i - r]  = s_min + (s_max - s_min) * drand48();
+			sumArray[i] += sigma[i * n + j + i - r];			
 		}
 	}
 
 	for (i = n - r; i < n; i++) {
+		sumArray[i] = 0;
 		for (j = 0; j < i - n + r + 1; j++) {
 			sigma[i * n + j] = s_min + (s_max - s_min) * drand48();
+			sumArray[i] += sigma[i * n + j];			
 		}
 		for (j = i - r; j < n; j++) {
 			sigma[i * n + j] = s_min + (s_max - s_min) * drand48();
+			sumArray[i] += sigma[i * n + j];			
 		}
 	}
 #if 0
@@ -312,6 +326,7 @@ int main(int argc, char *argv[])
 	/*
 	 * Temporal iteration.
 	 */
+
 	gettimeofday(&global_start, NULL);
 	for (it = 0; it < itime; it++) {
 		/*
@@ -319,12 +334,16 @@ int main(int argc, char *argv[])
 		 */
 		for (i = 0; i < n; i++) {
 			uplus[i] = u[i] + dt * (mu - u[i]);
-			sum = 0.0;
+			sum = -sumArray[i]*u[i];
 			/*
 			 * Iteration over neighbouring neurons.
 			 */
+			#pragma omp parallel private(j) shared(i,u,uplus,sumArray)
+ 			{
+ 			#pragma omp for reduction( +: sum)
 			for (j = 0; j < n; j++) {
-				sum += sigma[i * n + j] * (u[j] - u[i]);
+				sum += sigma[i * n + j] * u[j];
+			}
 			}
 			uplus[i] += dt * sum / divide;
 		}
@@ -344,7 +363,6 @@ int main(int argc, char *argv[])
 				}
 			}
 		}
-
 	temp = u;
 	u = uplus;
 	uplus = temp;

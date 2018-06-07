@@ -236,6 +236,12 @@ int main(int argc, char *argv[])
 		exit(1);
 	}
 
+	sumArray = (double *)calloc(n, sizeof(double));
+	if (sumArray == NULL) {
+		printf("Could not allocate memory for \"sumArray\".\n");
+		exit(1);
+	}
+
 	temp = (double *)calloc(n, sizeof(double));
 	if (temp == NULL) {
 		printf("Could not allocate memory for \"temp\".\n");
@@ -300,7 +306,7 @@ int main(int argc, char *argv[])
 		sumArray[i] = 0;
 		for (j = 0; j < 2 * r + 1; j++) {
 			sigma[i * n + j + i - r]  = s_min + (s_max - s_min) * drand48();
-			sumArray[i] += sigma[i * n + j + i - r];			
+			sumArray[i] += sigma[i * n + j + i - r];
 		}
 	}
 
@@ -308,11 +314,11 @@ int main(int argc, char *argv[])
 		sumArray[i] = 0;
 		for (j = 0; j < i - n + r + 1; j++) {
 			sigma[i * n + j] = s_min + (s_max - s_min) * drand48();
-			sumArray[i] += sigma[i * n + j];			
+			sumArray[i] += sigma[i * n + j];
 		}
 		for (j = i - r; j < n; j++) {
 			sigma[i * n + j] = s_min + (s_max - s_min) * drand48();
-			sumArray[i] += sigma[i * n + j];			
+			sumArray[i] += sigma[i * n + j];
 		}
 	}
 #if 0
@@ -329,13 +335,13 @@ int main(int argc, char *argv[])
 	 */
 
 	gettimeofday(&global_start, NULL);
-	#pragma omp parallel
-	{
-		#pragma omp for
-		for (it = 0; it < itime; it++) {
-			/*
-			 * Iteration over elements.
-			 */
+	#pragma omp parallel private(sum, it, i, j) shared(u ,uplus, sumArray)
+    {
+    	for (it = 0; it < itime; it++) {
+    		/*
+    		 * Iteration over elements.
+    		 */
+            #pragma omp for
 			for (i = 0; i < n; i++) {
 				uplus[i] = u[i] + dt * (mu - u[i]);
 				sum = -sumArray[i]*u[i];
@@ -348,55 +354,67 @@ int main(int argc, char *argv[])
 				uplus[i] += dt * sum / divide;
 			}
 
-			/*
-			 * Update network elements and set u[i] = 0 if u[i] > uth
-			 */
-			for (i = 0; i < n; i++) {
-				//u[i] = uplus[i];
-				if (uplus[i] > uth) {
-					uplus[i] = 0.0;
-					/*
-					 * Calculate omega's.
-					 */
-					if (it >= ttransient) {
-						omega1[i] += 1.0;
-					}
-				}
-			}
-	   temp = u;
-		u = uplus;
-		uplus = temp; 
+    		/*
+    		 * Update network elements and set u[i] = 0 if u[i] > uth
+    		 */
+            #pragma omp for
+    		for (i = 0; i < n; i++) {
 
-		//cblas_dswap (n,u,1,uplus,1);
-			/*
-			 * Print out of results.
-			 */
-	#if !defined(ALL_RESULTS)
-			if (it % ntstep == 0) {
-	#endif
-				printf("Time is %ld\n", it);
+    			if (uplus[i] > uth) {
+    				uplus[i] = 0.0;
+    				/*
+    				 * Calculate omega's.
+    				 */
+    				if (it >= ttransient) {
+    					omega1[i] += 1.0;
+    				}
+    			}
+    		}
+            #pragma omp barrier
+            #pragma omp single
+            {
+                temp = u;
+            	u = uplus;
+            	uplus = temp;
+            }
+            #pragma omp barrier
 
-				gettimeofday(&IO_start, NULL);
-				fprintf(output1, "%ld\t", it);
-				for (i = 0; i < n; i++) {
-					fprintf(output1, "%19.15f", u[i]);
-				}
-				fprintf(output1, "\n");
 
-				time = (double)it * dt;
-				fprintf(output2, "%ld\t", it);
-				for (i = 0; i < n; i++) {
-					omega[i] = 2.0 * M_PI * omega1[i] / (time - ttransient * dt);
-					fprintf(output2, "%19.15f", omega[i]);
-				}
-				fprintf(output2, "\n");
-				gettimeofday(&IO_end, NULL);
-				IO_usec += ((IO_end.tv_sec - IO_start.tv_sec) * 1000000.0 + (IO_end.tv_usec - IO_start.tv_usec));
-	#if !defined(ALL_RESULTS)
-			}
-	#endif
+    		#pragma omp single
+    		/*
+    		 * Print out of results.
+    		 */
+#if !defined(ALL_RESULTS)
+
+		  if (it % ntstep == 0) {
+#endif
+
+    			printf("Time is %ld\n", it);
+
+    			gettimeofday(&IO_start, NULL);
+    			fprintf(output1, "%ld\t", it);
+    			for (i = 0; i < n; i++) {
+    				fprintf(output1, "%19.15f", u[i]);
+    			}
+    			fprintf(output1, "\n");
+
+    			time = (double)it * dt;
+    			fprintf(output2, "%ld\t", it);
+    			for (i = 0; i < n; i++) {
+    				omega[i] = 2.0 * M_PI * omega1[i] / (time - ttransient * dt);
+    				fprintf(output2, "%19.15f", omega[i]);
+    			}
+    			fprintf(output2, "\n");
+    			gettimeofday(&IO_end, NULL);
+    			IO_usec += ((IO_end.tv_sec - IO_start.tv_sec) * 1000000.0 + (IO_end.tv_usec - IO_start.tv_usec));
+#if !defined(ALL_RESULTS)
 		}
-	}
+
+#endif
+
+    	}
+    }
+
 	gettimeofday(&global_end, NULL);
 	global_usec = ((global_end.tv_sec - global_start.tv_sec) * 1000000.0 + (global_end.tv_usec - global_start.tv_usec));
 
@@ -409,4 +427,3 @@ int main(int argc, char *argv[])
 
 	return 0;
 }
-

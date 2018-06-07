@@ -3,6 +3,8 @@
 #include <getopt.h>
 #include <stdlib.h>
 #include <sys/time.h>
+#include <omp.h>
+#include <cblas.h>
 
 #define MIN_NUM_OF_NEURONS	(1L)
 #define DEF_NUM_OF_NEURONS	(400L)
@@ -46,10 +48,12 @@ int main(int argc, char *argv[])
 	long		ttransient;
 	long		itime;
 	double		uth;
+	double 		alpha = 1.0, beta = 0.0;
+	double 		*anothersum;
 	double		mu;
 	double		s_min;
 	double		s_max;
-	double		*u, *uplus, *sigma, *omega, *omega1, *temp;
+	double		*u, *uplus, *sigma, *omega, *omega1, *temp, *sumArray;
 	double		sum;
 	double		time;
 	struct timeval	global_start, global_end, IO_start, IO_end;
@@ -235,6 +239,18 @@ int main(int argc, char *argv[])
 		exit(1);
 	}
 
+	sumArray = (double *)calloc(n, sizeof(double));
+	if (sumArray == NULL) {
+		printf("Could not allocate memory for \"sumArray\".\n");
+		exit(1);
+	}
+
+	anothersum = (double *)calloc(n, sizeof(double));
+	if (anothersum == NULL) {
+		printf("Could not allocate memory for \"anothersum\".\n");
+		exit(1);
+	}
+
 	temp = (double *)calloc(n, sizeof(double));
 	if (temp == NULL) {
 		printf("Could not allocate memory for \"temp\".\n");
@@ -248,6 +264,12 @@ int main(int argc, char *argv[])
 	}
 
 	sigma = (double *)calloc(n * n, sizeof(double));
+	if (sigma == NULL) {
+		printf("Could not allocate memory for \"sigma\".\n");
+		exit(1);
+	}
+
+	sumArray = (double *)calloc(n, sizeof(double));
 	if (sigma == NULL) {
 		printf("Could not allocate memory for \"sigma\".\n");
 		exit(1);
@@ -278,26 +300,34 @@ int main(int argc, char *argv[])
 	 * construct connectivity matrix.
 	 */
 	for (i = 0; i < r; i++) {
+		sumArray[i] = 0;
 		for (j = 0; j < i + r + 1; j++) {
 			sigma[i * n + j] = s_min + (s_max - s_min) * drand48();
+			sumArray[i] += sigma[i * n + j];
 		}
 		for (j = n - r + i; j < n; j++) {
 			sigma[i * n + j] = s_min + (s_max - s_min) * drand48();
+			sumArray[i] += sigma[i * n + j];
 		}
 	}
 
 	for (i = r; i < n - r; i++) {
+		sumArray[i] = 0;
 		for (j = 0; j < 2 * r + 1; j++) {
 			sigma[i * n + j + i - r]  = s_min + (s_max - s_min) * drand48();
+			sumArray[i] += sigma[i * n + j + i - r];
 		}
 	}
 
 	for (i = n - r; i < n; i++) {
+		sumArray[i] = 0;
 		for (j = 0; j < i - n + r + 1; j++) {
 			sigma[i * n + j] = s_min + (s_max - s_min) * drand48();
+			sumArray[i] += sigma[i * n + j];
 		}
 		for (j = i - r; j < n; j++) {
 			sigma[i * n + j] = s_min + (s_max - s_min) * drand48();
+			sumArray[i] += sigma[i * n + j];
 		}
 	}
 #if 0
@@ -312,70 +342,86 @@ int main(int argc, char *argv[])
 	/*
 	 * Temporal iteration.
 	 */
+
 	gettimeofday(&global_start, NULL);
-	for (it = 0; it < itime; it++) {
-		/*
-		 * Iteration over elements.
-		 */
-		for (i = 0; i < n; i++) {
-			uplus[i] = u[i] + dt * (mu - u[i]);
-			sum = 0.0;
-			/*
-			 * Iteration over neighbouring neurons.
-			 */
-			for (j = 0; j < n; j++) {
-				sum += sigma[i * n + j] * (u[j] - u[i]);
-			}
-			uplus[i] += dt * sum / divide;
-		}
-
-		/*
-		 * Update network elements and set u[i] = 0 if u[i] > uth
-		 */
-		for (i = 0; i < n; i++) {
-			//u[i] = uplus[i];
-			if (uplus[i] > uth) {
-				uplus[i] = 0.0;
-				/*
-				 * Calculate omega's.
-				 */
-				if (it >= ttransient) {
-					omega1[i] += 1.0;
-				}
-			}
-		}
-
-	temp = u;
-	u = uplus;
-	uplus = temp;
-		/*
-		 * Print out of results.
-		 */
-#if !defined(ALL_RESULTS)
-		if (it % ntstep == 0) {
-#endif
-			printf("Time is %ld\n", it);
-
-			gettimeofday(&IO_start, NULL);
-			fprintf(output1, "%ld\t", it);
+	#pragma omp parallel private(sum, it, i, j) shared(u ,uplus, sumArray)
+    {
+    	for (it = 0; it < itime; it++) {
+    		/*
+    		 * Iteration over elements.
+    		 */
+    		#pragma omp barrier
+            #pragma omp single
+            {
+			cblas_dgemv(CblasRowMajor, CblasNoTrans, n, n, alpha, sigma, n, u, 1, beta, anothersum, 1);
+            }
+            #pragma omp for	
 			for (i = 0; i < n; i++) {
-				fprintf(output1, "%19.15f", u[i]);
+				anothersum[i] += -sumArray[i]*u[i];
+				uplus[i] =  u[i] + dt * (mu - u[i]);
+				uplus[i] += dt * anothersum[i]/ divide;
 			}
-			fprintf(output1, "\n");
+    		/*
+    		 * Update network elements and set u[i] = 0 if u[i] > uth
+    		 */
+            #pragma omp for
+    		for (i = 0; i < n; i++) {
 
-			time = (double)it * dt;
-			fprintf(output2, "%ld\t", it);
-			for (i = 0; i < n; i++) {
-				omega[i] = 2.0 * M_PI * omega1[i] / (time - ttransient * dt);
-				fprintf(output2, "%19.15f", omega[i]);
-			}
-			fprintf(output2, "\n");
-			gettimeofday(&IO_end, NULL);
-			IO_usec += ((IO_end.tv_sec - IO_start.tv_sec) * 1000000.0 + (IO_end.tv_usec - IO_start.tv_usec));
+    			if (uplus[i] > uth) {
+    				uplus[i] = 0.0;
+    				/*
+    				 * Calculate omega's.
+    				 */
+    				if (it >= ttransient) {
+    					omega1[i] += 1.0;
+    				}
+    			}
+    		}
+            #pragma omp barrier
+            #pragma omp single
+            {
+                temp = u;
+            	u = uplus;
+            	uplus = temp;
+            }
+            #pragma omp barrier
+
+
+    		#pragma omp single
+    		/*
+    		 * Print out of results.
+    		 */
+#if !defined(ALL_RESULTS)
+
+		  if (it % ntstep == 0) {
+#endif
+
+    			printf("Time is %ld\n", it);
+
+    			gettimeofday(&IO_start, NULL);
+    			fprintf(output1, "%ld\t", it);
+    			for (i = 0; i < n; i++) {
+    				fprintf(output1, "%19.15f", u[i]);
+    			}
+    			fprintf(output1, "\n");
+
+    			time = (double)it * dt;
+    			fprintf(output2, "%ld\t", it);
+    			for (i = 0; i < n; i++) {
+    				omega[i] = 2.0 * M_PI * omega1[i] / (time - ttransient * dt);
+    				fprintf(output2, "%19.15f", omega[i]);
+    			}
+    			fprintf(output2, "\n");
+    			gettimeofday(&IO_end, NULL);
+    			IO_usec += ((IO_end.tv_sec - IO_start.tv_sec) * 1000000.0 + (IO_end.tv_usec - IO_start.tv_usec));
 #if !defined(ALL_RESULTS)
 		}
+
 #endif
-	}
+
+    	}
+    }
+
 	gettimeofday(&global_end, NULL);
 	global_usec = ((global_end.tv_sec - global_start.tv_sec) * 1000000.0 + (global_end.tv_usec - global_start.tv_usec));
 
@@ -388,4 +434,3 @@ int main(int argc, char *argv[])
 
 	return 0;
 }
-

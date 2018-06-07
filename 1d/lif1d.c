@@ -39,6 +39,7 @@ int main(int argc, char *argv[])
 	long		n, r;
 	long		i, j;
 	long		it;
+	double 		alpha = 1.0, beta = 0.0;
 	double		divide;
 	double		dt;
 	double		tstep;
@@ -47,15 +48,16 @@ int main(int argc, char *argv[])
 	long		ttransient;
 	long		itime;
 	double		uth;
+	double 		*anothersum;
 	double		mu;
 	double		s_min;
 	double		s_max;
 	double		*u, *uplus, *sigma, *omega, *omega1, *temp, *sumArray;
 	double		sum;
 	double		time;
-	struct timeval	global_start, global_end, IO_start, IO_end;
+	struct 		timeval	global_start, global_end, IO_start, IO_end;
 	double		global_usec, IO_usec = 0.0;
-	int		c, option_index;
+	int			c, option_index;
 	char		*end_ptr;
 
 	n          = DEF_NUM_OF_NEURONS;
@@ -248,6 +250,12 @@ int main(int argc, char *argv[])
 		exit(1);
 	}
 
+	anothersum = (double *)calloc(n, sizeof(double));
+	if (uplus == NULL) {
+		printf("Could not allocate memory for \"anothersum\".\n");
+		exit(1);
+	}
+
 	sigma = (double *)calloc(n * n, sizeof(double));
 	if (sigma == NULL) {
 		printf("Could not allocate memory for \"sigma\".\n");
@@ -327,22 +335,18 @@ int main(int argc, char *argv[])
 	/*
 	 * Temporal iteration.
 	 */
-
+	
 	gettimeofday(&global_start, NULL);
 	for (it = 0; it < itime; it++) {
 		/*
 		 * Iteration over elements.
 		 */
+		
+		cblas_dgemv(CblasRowMajor, CblasNoTrans, n, n, alpha, sigma, n, u, 1, beta, anothersum, 1);
 		for (i = 0; i < n; i++) {
-			uplus[i] = u[i] + dt * (mu - u[i]);
-			sum = -sumArray[i]*u[i];
-			/*
-			 * Iteration over neighbouring neurons.
-			 */
-			for (j = 0; j < n; j++) {
-				sum += sigma[i * n + j] * u[j];
-			}
-			uplus[i] += dt * sum / divide;
+			anothersum[i] += -sumArray[i]*u[i];
+			uplus[i] =  u[i] + dt * (mu - u[i]);
+			uplus[i] += dt * anothersum[i]/ divide;
 		}
 
 		/*
@@ -360,10 +364,7 @@ int main(int argc, char *argv[])
 				}
 			}
 		}
-   /*	temp = u;
-	u = uplus;
-	uplus = temp; */
-
+	//blas swap u and uplus	
 	cblas_dswap (n,u,1,uplus,1);
 		/*
 		 * Print out of results.

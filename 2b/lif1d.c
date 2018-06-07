@@ -3,6 +3,7 @@
 #include <getopt.h>
 #include <stdlib.h>
 #include <sys/time.h>
+#include <omp.h>
 
 #define MIN_NUM_OF_NEURONS	(1L)
 #define DEF_NUM_OF_NEURONS	(400L)
@@ -49,7 +50,7 @@ int main(int argc, char *argv[])
 	double		mu;
 	double		s_min;
 	double		s_max;
-	double		*u, *uplus, *sigma, *omega, *omega1, *temp;
+	double		*u, *uplus, *sigma, *omega, *omega1, *temp, *sumArray;
 	double		sum;
 	double		time;
 	struct timeval	global_start, global_end, IO_start, IO_end;
@@ -235,6 +236,12 @@ int main(int argc, char *argv[])
 		exit(1);
 	}
 
+	sumArray = (double *)calloc(n, sizeof(double));
+	if (sumArray == NULL) {
+		printf("Could not allocate memory for \"sumArray\".\n");
+		exit(1);
+	}
+
 	temp = (double *)calloc(n, sizeof(double));
 	if (temp == NULL) {
 		printf("Could not allocate memory for \"temp\".\n");
@@ -248,6 +255,12 @@ int main(int argc, char *argv[])
 	}
 
 	sigma = (double *)calloc(n * n, sizeof(double));
+	if (sigma == NULL) {
+		printf("Could not allocate memory for \"sigma\".\n");
+		exit(1);
+	}
+
+	sumArray = (double *)calloc(n, sizeof(double));
 	if (sigma == NULL) {
 		printf("Could not allocate memory for \"sigma\".\n");
 		exit(1);
@@ -278,26 +291,34 @@ int main(int argc, char *argv[])
 	 * construct connectivity matrix.
 	 */
 	for (i = 0; i < r; i++) {
+		sumArray[i] = 0;
 		for (j = 0; j < i + r + 1; j++) {
 			sigma[i * n + j] = s_min + (s_max - s_min) * drand48();
+			sumArray[i] += sigma[i * n + j];
 		}
 		for (j = n - r + i; j < n; j++) {
 			sigma[i * n + j] = s_min + (s_max - s_min) * drand48();
+			sumArray[i] += sigma[i * n + j];
 		}
 	}
 
 	for (i = r; i < n - r; i++) {
+		sumArray[i] = 0;
 		for (j = 0; j < 2 * r + 1; j++) {
 			sigma[i * n + j + i - r]  = s_min + (s_max - s_min) * drand48();
+			sumArray[i] += sigma[i * n + j + i - r];			
 		}
 	}
 
 	for (i = n - r; i < n; i++) {
+		sumArray[i] = 0;
 		for (j = 0; j < i - n + r + 1; j++) {
 			sigma[i * n + j] = s_min + (s_max - s_min) * drand48();
+			sumArray[i] += sigma[i * n + j];			
 		}
 		for (j = i - r; j < n; j++) {
 			sigma[i * n + j] = s_min + (s_max - s_min) * drand48();
+			sumArray[i] += sigma[i * n + j];			
 		}
 	}
 #if 0
@@ -312,42 +333,48 @@ int main(int argc, char *argv[])
 	/*
 	 * Temporal iteration.
 	 */
+
 	gettimeofday(&global_start, NULL);
 	for (it = 0; it < itime; it++) {
 		/*
 		 * Iteration over elements.
 		 */
-		for (i = 0; i < n; i++) {
-			uplus[i] = u[i] + dt * (mu - u[i]);
-			sum = 0.0;
-			/*
-			 * Iteration over neighbouring neurons.
-			 */
-			for (j = 0; j < n; j++) {
-				sum += sigma[i * n + j] * (u[j] - u[i]);
+	#pragma omp parallel private(sum,i,j) shared(u,uplus,sumArray)
+ 		{
+ 			#pragma omp for
+			for (i = 0; i < n; i++) {
+				uplus[i] = u[i] + dt * (mu - u[i]);
+				sum = -sumArray[i]*u[i];
+				/*
+				 * Iteration over neighbouring neurons.
+				 */
+				for (j = 0; j < n; j++) {
+					sum += sigma[i * n + j] * u[j];
+				}
+				uplus[i] += dt * sum / divide;
 			}
-			uplus[i] += dt * sum / divide;
 		}
-
 		/*
 		 * Update network elements and set u[i] = 0 if u[i] > uth
 		 */
-		for (i = 0; i < n; i++) {
-			//u[i] = uplus[i];
-			if (uplus[i] > uth) {
-				uplus[i] = 0.0;
-				/*
-				 * Calculate omega's.
-				 */
-				if (it >= ttransient) {
-					omega1[i] += 1.0;
-				}
-			}
-		}
 
-	temp = u;
-	u = uplus;
-	uplus = temp;
+		for (i = 0; i < n; i++) {
+
+    			if (uplus[i] > uth) {
+    				uplus[i] = 0.0;
+    				/*
+    				 * Calculate omega's.
+    				 */
+    				if (it >= ttransient) {
+    					omega1[i] += 1.0;
+    				}
+    			}
+    	}
+
+		temp = u;
+    	u = uplus;
+    	uplus = temp;
+
 		/*
 		 * Print out of results.
 		 */
@@ -376,6 +403,7 @@ int main(int argc, char *argv[])
 		}
 #endif
 	}
+
 	gettimeofday(&global_end, NULL);
 	global_usec = ((global_end.tv_sec - global_start.tv_sec) * 1000000.0 + (global_end.tv_usec - global_start.tv_usec));
 
