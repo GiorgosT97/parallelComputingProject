@@ -342,19 +342,19 @@ int main(int argc, char *argv[])
 	/*
 	 * Temporal iteration.
 	 */
-	long counter;
+
 	gettimeofday(&global_start, NULL);
-	#pragma omp parallel private(sum, it, i, j,counter) shared(u ,uplus, sumArray)
+	#pragma omp parallel private(sum, it, i, j) shared(u ,uplus, sumArray)
     {
     	for (it = 0; it < itime; it++) {
     		/*
     		 * Iteration over elements.
     		 */
-    		#pragma omp master
-    		{
- 				cblas_dgemv(CblasRowMajor, CblasNoTrans, n, n, alpha, sigma, n, u, 1, beta, anothersum, 1);
-    		}
-
+    		#pragma omp barrier
+            #pragma omp single
+            {
+			cblas_dgemv(CblasRowMajor, CblasNoTrans, n, n, alpha, sigma, n, u, 1, beta, anothersum, 1);
+            }
             #pragma omp for	
 			for (i = 0; i < n; i++) {
 				anothersum[i] += -sumArray[i]*u[i];
@@ -380,9 +380,13 @@ int main(int argc, char *argv[])
             #pragma omp barrier
             #pragma omp single
             {
-			cblas_dswap (n,u,1,uplus,1);
+                temp = u;
+            	u = uplus;
+            	uplus = temp;
             }
-            //#pragma omp barrier
+            #pragma omp barrier
+
+
     		#pragma omp single
     		/*
     		 * Print out of results.
